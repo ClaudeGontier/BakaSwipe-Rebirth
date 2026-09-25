@@ -39,7 +39,7 @@ L'utilisateur parle français, style direct et concis : réponds en français, p
 - AGP 8.7.3, Kotlin 2.1.0, Gradle 8.11.1, compileSdk 35, minSdk 26, JDK 17.
 - CI : `.github/workflows/build.yml` → `./gradlew assembleRelease`, artifact `BakaSwipe-apk`. Release signé avec une clé fixe fournie par les secrets `SIGNING_KEYSTORE_B64` / `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_ALIAS` (sinon fallback clé debug jetable → mises à jour impossibles).
 - Le build CI passe (pas de compilation possible en local dans la sandbox : pas d'accès à Google Maven).
-- Release : ajouter une section `## vX.Y.Z` dans `CHANGELOG.md`, bumper `versionCode`/`versionName`, puis lancer le workflow avec `release=vX.Y.Z` (ou pousser le tag) ; la section du changelog devient le corps de la release.
+- Release : ajouter une section `## vX.Y.Z` dans `CHANGELOG.md`, bumper `versionCode`/`versionName`, puis push sur `main` (release auto si le tag `vX.Y.Z` n'existe pas), ou lancer le workflow avec `release=vX.Y.Z`, ou pousser le tag ; la section du changelog devient le corps de la release, l'APK `BakaSwipe-vX.Y.Z.apk` y est attaché directement. Release refusée sans keystore.
 
 ## Idées pas encore faites
 - Pas de cache offline, pas de tests.

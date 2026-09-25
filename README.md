@@ -19,8 +19,13 @@ Tu le tapes au premier lancement de l'app, ou tu le bakes au build (`-PMAL_CLIEN
 
 ## 2. Build de l'APK
 
-**GitHub Actions (rien à installer)** : push le repo, ajoute éventuellement le secret `MAL_CLIENT_ID`,
-l'APK sort dans l'onglet Actions → artifact `BakaSwipe-apk`.
+**GitHub Actions (rien à installer)** : chaque push build l'APK (onglet Actions → artifact `BakaSwipe-apk`).
+Un push sur `main` avec un `versionName` pas encore tagué crée la release `vX.Y.Z` avec l'APK en pièce jointe
+(téléchargeable direct, pas de zip) et la section correspondante de `CHANGELOG.md` en description.
+Aussi possible : pousser un tag `vX.Y.Z`, ou lancer le workflow à la main avec `release=vX.Y.Z`.
+
+Secrets du repo : `SIGNING_KEYSTORE_B64` (keystore en base64), `SIGNING_STORE_PASSWORD` (mot de passe du keystore
+et de la clé), `SIGNING_KEY_ALIAS` (alias de la clé), et optionnellement `MAL_CLIENT_ID`.
 
 **En local** (JDK 17 + Android SDK) :
 ```sh
@@ -29,7 +34,7 @@ adb install app/build/outputs/apk/release/app-release.apk
 ```
 Ou ouvre simplement le dossier dans Android Studio → Run.
 
-L'APK release est signé avec la clé debug : installable direct, pas publiable sur le Play Store tel quel.
+Sans keystore (build local), l'APK release est signé avec la clé debug : installable, mais les mises à jour par-dessus une version CI échoueront.
 
 ## Tirage semi-aléatoire
 - **Populaires** : top ~500 en popularité (ou top 25 de la saison si filtre d'années)
