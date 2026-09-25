@@ -1,0 +1,107 @@
+name: Build APK
+
+# - Push sur n'importe quelle branche : build + artifact.
+# - Push sur main avec un versionName sans tag vX.Y.Z existant : build + release vX.Y.Z.
+# - Push d'un tag vX.Y.Z, ou lancement manuel avec release=vX.Y.Z : build + release.
+# La release contient l'APK directement (pas de zip) et la section du CHANGELOG en description.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Tag de release (ex. v1.0.4), vide = build seul'
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version et tag de release
+        id: meta
+        env:
+          INPUT_RELEASE: ${{ github.event.inputs.release }}
+        run: |
+          version=$(sed -n 's/.*versionName *= *"\(.*\)".*/\1/p' app/build.gradle.kts | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          tag=""
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          elif [ -n "$INPUT_RELEASE" ]; then
+            tag="$INPUT_RELEASE"
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+              echo "Tag v$version déjà existant : pas de release (bumper versionName pour en créer une)."
+            else
+              tag="v$version"
+            fi
+          fi
+          if [ -n "$tag" ] && [ "$tag" != "v$version" ]; then
+            echo "::error::Tag $tag différent de versionName ($version) dans app/build.gradle.kts"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            if [ -n "$RELEASE_TAG" ]; then
+              echo "::error::Secret SIGNING_KEYSTORE_B64 absent : release refusée (clé debug = mises à jour impossibles)."
+              exit 1
+            fi
+            echo "::warning::Pas de keystore : APK signé avec la clé debug jetable."
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "SIGNING_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+        run: |
+          ./gradlew assembleRelease -PMAL_CLIENT_ID="$MAL_CLIENT_ID"
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/BakaSwipe-v${{ steps.meta.outputs.version }}.apk"
+          rm -f "$RUNNER_TEMP/release.jks"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BakaSwipe-apk
+          path: dist/*.apk
+
+      - name: Release
+        if: steps.meta.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          # Section "## vX.Y.Z" du CHANGELOG, jusqu'à la section suivante
+          awk -v h="## $TAG" '$0==h{f=1;next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "BakaSwipe $TAG" > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.apk --clobber
+          else
+            gh release create "$TAG" dist/*.apk --title "BakaSwipe $TAG" --notes-file notes.md --target "$GITHUB_SHA"
+          fi
